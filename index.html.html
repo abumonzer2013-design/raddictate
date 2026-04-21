@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>RadDictate — AI Radiology Reporting</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Sora:wght@300;400;600;700&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+<style>
+:root{
+  --bg:#0a0d14;--panel:#111520;--border:#1e2638;
+  --accent:#38bdf8;--accent2:#818cf8;--danger:#f87171;
+  --text:#e2e8f0;--muted:#64748b;--success:#34d399;--warn:#fbbf24;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--text);font-family:'Sora',sans-serif;min-height:100vh;overflow-x:hidden;}
+body::before{content:'';position:fixed;top:-200px;left:50%;transform:translateX(-50%);width:700px;height:500px;
+  background:radial-gradient(ellipse,rgba(56,189,248,0.07) 0%,transparent 70%);pointer-events:none;}
+
+/* ── Layout ── */
+.app{display:flex;flex-direction:column;min-height:100vh;}
+header{display:flex;align-items:center;gap:14px;padding:18px 24px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg);z-index:50;}
+.logo-mark{width:36px;height:36px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;}
+.logo-text h1{font-size:18px;font-weight:700;letter-spacing:-0.5px;}
+.logo-text p{font-size:10px;color:var(--muted);font-weight:300;letter-spacing:1.5px;text-transform:uppercase;}
+.badge{font-size:10px;font-family:'DM Mono',monospace;padding:3px 9px;border-radius:20px;background:rgba(56,189,248,0.08);border:1px solid rgba(56,189,248,0.25);color:var(--accent);letter-spacing:1px;}
+.session-count{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);font-family:'DM Mono',monospace;}
+.session-count span{background:rgba(56,189,248,0.1);border:1px solid rgba(56,189,248,0.2);color:var(--accent);padding:2px 10px;border-radius:12px;font-weight:600;}
+
+.main{display:flex;flex:1;gap:0;}
+
+/* ── Patient Sidebar ── */
+.sidebar{width:240px;flex-shrink:0;border-right:1px solid var(--border);display:flex;flex-direction:column;height:calc(100vh - 61px);position:sticky;top:61px;overflow:hidden;}
+.sidebar-header{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;}
+.sidebar-header span{font-size:11px;font-family:'DM Mono',monospace;color:var(--muted);letter-spacing:1px;text-transform:uppercase;}
+.btn-add-patient{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#0a0d14;border:none;border-radius:8px;padding:5px 12px;font-family:'Sora',sans-serif;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;}
+.btn-add-patient:hover{opacity:0.85;}
+.patient-list{flex:1;overflow-y:auto;padding:8px;}
+.patient-list::-webkit-scrollbar{width:4px;}
+.patient-list::-webkit-scrollbar-track{background:transparent;}
+.patient-list::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px;}
+
+.patient-card{border-radius:10px;padding:10px 12px;margin-bottom:6px;cursor:pointer;border:1px solid transparent;transition:all 0.18s;position:relative;}
+.patient-card:hover{background:rgba(255,255,255,0.03);border-color:var(--border);}
+.patient-card.active{background:rgba(56,189,248,0.08);border-color:rgba(56,189,248,0.3);}
+.patient-card .pc-name{font-size:13px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.patient-card .pc-meta{font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.patient-card .pc-status{display:inline-flex;align-items:center;gap:4px;margin-top:5px;font-size:10px;font-family:'DM Mono',monospace;padding:2px 7px;border-radius:10px;}
+.pc-status.draft{background:rgba(100,116,139,0.15);color:var(--muted);}
+.pc-status.done{background:rgba(52,211,153,0.12);color:var(--success);}
+.pc-status.processing{background:rgba(56,189,248,0.12);color:var(--accent);}
+.patient-card .pc-del{position:absolute;top:8px;right:8px;background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;opacity:0;transition:opacity 0.15s;line-height:1;}
+.patient-card:hover .pc-del{opacity:1;}
+.patient-card .pc-del:hover{color:var(--danger);}
+
+.sidebar-footer{padding:12px 16px;border-top:1px solid var(--border);}
+.btn-export-all{width:100%;padding:9px;border-radius:9px;background:rgba(37,99,235,0.15);border:1px solid rgba(37,99,235,0.3);color:#93c5fd;font-family:'Sora',sans-serif;font-size:12px;font-weight:600;cursor:pointer;transition:all 0.2s;}
+.btn-export-all:hover{background:rgba(37,99,235,0.25);}
+.btn-export-all:disabled{opacity:0.35;cursor:not-allowed;}
+
+/* ── Content Area ── */
+.content{flex:1;overflow-y:auto;padding:24px;display:flex;flex-direction:column;gap:18px;max-width:100%;}
+
+/* API row */
+.api-row{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:14px 18px;display:flex;gap:10px;align-items:center;}
+.api-row label{font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;white-space:nowrap;letter-spacing:0.5px;}
+.api-row input{flex:1;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-family:'DM Mono',monospace;font-size:13px;outline:none;transition:border-color 0.2s;}
+.api-row input:focus{border-color:var(--accent);}
+
+/* Patient info panel */
+.panel{background:var(--panel);border:1px solid var(--border);border-radius:14px;overflow:hidden;}
+.panel-header{padding:11px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;font-size:11px;font-family:'DM Mono',monospace;color:var(--muted);letter-spacing:1px;text-transform:uppercase;}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--muted);opacity:0.4;}
+.dot.live{background:var(--danger);opacity:1;animation:pulse 1s infinite;}
+.dot.ready{background:var(--success);opacity:1;}
+@keyframes pulse{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(248,113,113,0.4)}50%{opacity:0.7;box-shadow:0 0 0 5px rgba(248,113,113,0)}}
+
+.patient-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;padding:16px 18px;}
+@media(max-width:900px){.patient-grid{grid-template-columns:1fr 1fr;}}
+.field-group{display:flex;flex-direction:column;gap:5px;}
+.field-group label{font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;letter-spacing:0.8px;}
+.field-group input,.field-group select{background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:8px;padding:7px 11px;color:var(--text);font-family:'Sora',sans-serif;font-size:13px;outline:none;transition:border-color 0.2s;width:100%;}
+.field-group input:focus,.field-group select:focus{border-color:var(--accent);}
+.field-group input[dir="rtl"]{font-family:'Segoe UI',Tahoma,Arial,sans-serif;font-size:14px;}
+
+/* Template */
+.template-row{display:flex;gap:7px;flex-wrap:wrap;}
+.template-btn{padding:5px 13px;border-radius:20px;border:1px solid var(--border);background:transparent;color:var(--muted);font-family:'Sora',sans-serif;font-size:12px;cursor:pointer;transition:all 0.2s;}
+.template-btn:hover{border-color:var(--accent);color:var(--accent);}
+.template-btn.active{background:rgba(56,189,248,0.1);border-color:var(--accent);color:var(--accent);}
+.section-label{font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;letter-spacing:1px;margin-bottom:8px;}
+
+/* Two col */
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
+@media(max-width:700px){.two-col{grid-template-columns:1fr;}}
+
+textarea{width:100%;background:transparent;border:none;padding:14px 18px;color:var(--text);font-family:'DM Mono',monospace;font-size:13px;line-height:1.8;resize:none;outline:none;min-height:240px;}
+textarea::placeholder{color:var(--muted);opacity:0.5;}
+.output-content{padding:14px 18px;font-family:'DM Mono',monospace;font-size:13px;line-height:1.8;min-height:240px;white-space:pre-wrap;overflow-y:auto;color:var(--text);}
+.output-content.empty{color:var(--muted);opacity:0.4;font-style:italic;}
+.output-content .rh{color:var(--accent);font-weight:500;}
+.report-edit-area{display:none;width:100%;background:transparent;border:none;padding:14px 18px;color:var(--text);font-family:'DM Mono',monospace;font-size:13px;line-height:1.8;resize:none;outline:none;min-height:240px;}
+.report-edit-area.visible{display:block;}
+
+.status-bar{display:flex;align-items:center;gap:8px;font-size:11px;font-family:'DM Mono',monospace;color:var(--muted);padding:9px 18px;border-top:1px solid var(--border);}
+.timer{margin-left:auto;font-variant-numeric:tabular-nums;color:var(--danger);opacity:0;transition:opacity 0.3s;}
+.timer.visible{opacity:1;}
+.edit-badge{margin-left:auto;font-size:10px;font-family:'DM Mono',monospace;padding:2px 7px;border-radius:10px;background:rgba(251,191,36,0.15);border:1px solid rgba(251,191,36,0.3);color:var(--warn);letter-spacing:0.5px;display:none;}
+.edit-badge.visible{display:inline-block;}
+
+/* Controls */
+.controls{display:flex;gap:9px;align-items:center;flex-wrap:wrap;}
+.btn{display:flex;align-items:center;gap:7px;padding:10px 18px;border-radius:9px;border:none;font-family:'Sora',sans-serif;font-size:13px;font-weight:600;cursor:pointer;transition:all 0.2s;white-space:nowrap;}
+.btn-record{background:linear-gradient(135deg,#ef4444,#dc2626);color:white;box-shadow:0 4px 16px rgba(239,68,68,0.3);}
+.btn-record:hover{transform:translateY(-1px);box-shadow:0 6px 22px rgba(239,68,68,0.4);}
+.btn-record.recording{background:linear-gradient(135deg,#b91c1c,#991b1b);animation:recPulse 1.5s infinite;}
+@keyframes recPulse{0%,100%{box-shadow:0 4px 16px rgba(239,68,68,0.3)}50%{box-shadow:0 4px 28px rgba(239,68,68,0.6)}}
+.btn-process{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#0a0d14;box-shadow:0 4px 16px rgba(56,189,248,0.2);}
+.btn-process:hover{transform:translateY(-1px);box-shadow:0 6px 22px rgba(56,189,248,0.35);}
+.btn-process:disabled{opacity:0.4;cursor:not-allowed;transform:none;}
+.btn-secondary{background:rgba(255,255,255,0.05);border:1px solid var(--border);color:var(--muted);}
+.btn-secondary:hover{border-color:var(--accent);color:var(--accent);background:rgba(56,189,248,0.05);}
+.btn-word{background:rgba(37,99,235,0.15);border:1px solid rgba(37,99,235,0.35);color:#93c5fd;}
+.btn-word:hover{background:rgba(37,99,235,0.25);}
+.btn-copy{background:rgba(52,211,153,0.1);border:1px solid rgba(52,211,153,0.25);color:var(--success);}
+.btn-copy:hover{background:rgba(52,211,153,0.2);}
+.btn-edit{background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.3);color:var(--warn);}
+.btn-edit:hover{background:rgba(251,191,36,0.2);}
+.btn-edit.active{background:rgba(251,191,36,0.25);border-color:var(--warn);}
+.btn-whatsapp{background:rgba(37,211,102,0.12);border:1px solid rgba(37,211,102,0.3);color:#25d366;}
+.btn-whatsapp:hover{background:rgba(37,211,102,0.22);}
+.btn-next{background:rgba(129,140,248,0.12);border:1px solid rgba(129,140,248,0.3);color:var(--accent2);}
+.btn-next:hover{background:rgba(129,140,248,0.22);}
+.btn-print{background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.25);color:var(--warn);}
+.btn-print:hover{background:rgba(251,191,36,0.2);}
+
+/* Recording indicator on sidebar card */
+.pc-rec{display:inline-flex;align-items:center;gap:4px;font-size:10px;font-family:'DM Mono',monospace;color:var(--danger);margin-left:6px;animation:pulse 1s infinite;}
+
+/* Paste modal */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:300;display:flex;align-items:center;justify-content:center;padding:20px;}
+.modal{background:var(--panel);border:1px solid var(--border);border-radius:16px;width:100%;max-width:600px;display:flex;flex-direction:column;gap:0;overflow:hidden;}
+.modal-header{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;}
+.modal-header h3{font-size:14px;font-weight:600;color:var(--text);}
+.modal-header button{background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;line-height:1;}
+.modal-header button:hover{color:var(--danger);}
+.modal-body{padding:16px 20px;display:flex;flex-direction:column;gap:12px;}
+.modal-body p{font-size:12px;color:var(--muted);line-height:1.6;}
+.modal-body textarea{width:100%;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:10px;padding:12px 14px;color:var(--text);font-family:'DM Mono',monospace;font-size:12px;line-height:1.7;resize:none;outline:none;min-height:200px;}
+.modal-body textarea:focus{border-color:var(--accent);}
+.modal-footer{padding:14px 20px;border-top:1px solid var(--border);display:flex;gap:10px;justify-content:flex-end;}
+
+@media print{
+  body{background:#fff;color:#000;}
+  .app,.main,.sidebar,.controls,.api-row,header,.template-row,.section-label{display:none!important;}
+  #printArea{display:block!important;}
+  #printArea{font-family:Arial,sans-serif;font-size:12pt;line-height:1.7;padding:20mm;}
+  #printArea h2{font-size:16pt;font-weight:bold;border-bottom:2px solid #1E3A5F;padding-bottom:6px;margin-bottom:14px;color:#1E3A5F;}
+  #printArea .print-meta{font-size:10pt;color:#555;margin-bottom:16px;border:1px solid #ddd;padding:8px 12px;border-radius:4px;}
+  #printArea .print-section-header{font-weight:bold;text-transform:uppercase;color:#1E3A5F;margin-top:12px;}
+  #printArea .print-body{white-space:pre-wrap;}
+}
+
+/* Shimmer */
+.shimmer{background:linear-gradient(90deg,var(--border) 25%,rgba(56,189,248,0.08) 50%,var(--border) 75%);background-size:200% 100%;animation:shimmer 1.5s infinite;border-radius:4px;height:14px;margin:7px 0;}
+@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+
+/* Toast */
+.toast{position:fixed;bottom:26px;right:22px;background:var(--success);color:#0a0d14;padding:9px 18px;border-radius:8px;font-family:'DM Mono',monospace;font-size:13px;font-weight:500;opacity:0;transform:translateY(10px);transition:all 0.3s;pointer-events:none;z-index:200;}
+.toast.show{opacity:1;transform:translateY(0);}
+
+/* Empty state */
+.empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;height:300px;gap:12px;color:var(--muted);}
+.empty-state .es-icon{font-size:48px;opacity:0.3;}
+.empty-state p{font-size:13px;text-align:center;line-height:1.6;max-width:260px;}
+.empty-state button{margin-top:8px;}
+
+@media(max-width:640px){.sidebar{width:200px;}.content{padding:16px;}}
+</style>
+</head>
+<body>
+<div class="app">
+
+<header>
+  <div class="logo-mark">🫁</div>
+  <div class="logo-text"><h1>RadDictate</h1><p>AI Radiology Reporting</p></div>
+  <div class="badge">BETA</div>
+  <div class="session-count">Session: <span id="sessionCount">0</span> patients</div>
+</header>
+
+<div class="main">
+
+  <!-- ── Sidebar ── -->
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <span>Patients</span>
+      <button class="btn-add-patient" onclick="addNewPatient()">+ New</button>
+    </div>
+    <div class="patient-list" id="patientList"></div>
+    <div class="sidebar-footer">
+      <button class="btn-export-all" id="exportAllBtn" onclick="exportAllWord()" disabled>⬇ Export All (.docx)</button>
+    </div>
+  </div>
+
+  <!-- ── Content ── -->
+  <div class="content" id="mainContent">
+    <div class="empty-state">
+      <div class="es-icon">🫁</div>
+      <p>No patients in this session yet.<br>Click <strong>+ New</strong> to start dictating.</p>
+      <button class="btn btn-process" onclick="addNewPatient()">+ Add First Patient</button>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<div class="toast" id="toast"></div>
+<div id="printArea" style="display:none;"></div>
+
+<script>
+// ══════════════════════════════════════════════
+// State
+// ══════════════════════════════════════════════
+let patients = [];        // array of patient objects
+let activeId = null;      // currently viewed patient id
+let recordings = {};      // per-patient: { recognition, timerInterval, seconds }
+let isEditMode = false;
+
+const templates = {
+  chest_ct:   {label:'Chest CT',           sections:'Technique, Clinical Indication, Findings (Lungs & Airways, Pleura, Mediastinum & Hila, Heart & Pericardium, Chest Wall & Diaphragm, Upper Abdomen if included), Impression'},
+  brain_mri:  {label:'Brain MRI',          sections:'Technique, Clinical Indication, Findings (Brain Parenchyma, Ventricles & Cisterns, Extra-axial Spaces, Vascular Structures, Skull & Scalp), Impression'},
+  abdomen_ct: {label:'Abdomen & Pelvis CT',sections:'Technique, Clinical Indication, Findings (Liver, Gallbladder & Biliary, Pancreas, Spleen, Kidneys & Adrenals, Bowel, Mesentery, Vascular, Lymph Nodes, Pelvis, Bones), Impression'},
+  msk:        {label:'MSK / Joints',       sections:'Technique, Clinical Indication, Findings (Bones, Joints & Cartilage, Soft Tissues), Impression'},
+  ultrasound: {label:'Ultrasound',         sections:'Technique, Clinical Indication, Findings (organ by organ as dictated, vascularity if Doppler), Impression'},
+  spine:      {label:'Spine',              sections:'Technique, Clinical Indication, Findings (Vertebral Bodies & Alignment, Disc Spaces, Spinal Canal, Neural Foramina, Paraspinal Soft Tissues), Impression'},
+  generic:    {label:'Generic',            sections:'Technique, Clinical Indication, Findings, Impression'},
+};
+
+// ── API key ──
+const savedKey = localStorage.getItem('rad_api_key');
+
+// ══════════════════════════════════════════════
+// Patient Management
+// ══════════════════════════════════════════════
+function genId(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
+
+function addNewPatient(){
+  const id = genId();
+  const today = new Date().toISOString().split('T')[0];
+  patients.push({
+    id, name:'', nameAr:'', dob:'', mrn:'', ref:'', studyDate:today, radiologist:'',
+    template:'ultrasound', dictation:'', report:'', status:'draft'
+  });
+  renderSidebar();
+  switchPatient(id);
+}
+
+function deletePatient(id, e){
+  e.stopPropagation();
+  if(isRecordingPatient(id)) stopRecording(id);
+  if(patients.length===1){ patients=patients.filter(p=>p.id!==id); activeId=null; renderSidebar(); renderEmpty(); return; }
+  const idx = patients.findIndex(p=>p.id===id);
+  patients = patients.filter(p=>p.id!==id);
+  if(activeId===id){
+    const next = patients[Math.min(idx, patients.length-1)];
+    activeId = next.id;
+  }
+  renderSidebar();
+  renderPatientView(activeId);
+}
+
+function switchPatient(id){
+  if(activeId===id) return;
+  if(activeId) saveFormState();
+  isEditMode=false;
+  activeId=id;
+  renderSidebar();
+  renderPatientView(id);
+  // restore record UI if this patient is being recorded
+  if(isRecordingPatient(id)) updateRecordUI(true);
+}
+
+function saveFormState(){
+  if(!activeId) return;
+  const p = patients.find(x=>x.id===activeId);
+  if(!p) return;
+  p.name        = v('patName');
+  p.nameAr      = v('patNameAr');
+  p.dob         = v('patDOB');
+  p.mrn         = v('patMRN');
+  p.ref         = v('patRef');
+  p.studyDate   = v('studyDate');
+  p.radiologist = v('radiologist');
+  p.template    = document.querySelector('.template-btn.active')?.dataset.template || p.template;
+  p.dictation   = v('dictationText');
+  // report saved separately on generate
+}
+
+function v(id){ const el=document.getElementById(id); return el?el.value:''; }
+
+// ══════════════════════════════════════════════
+// Rendering
+// ══════════════════════════════════════════════
+function renderSidebar(){
+  const list = document.getElementById('patientList');
+  const count = document.getElementById('sessionCount');
+  const exportBtn = document.getElementById('exportAllBtn');
+  count.textContent = patients.length;
+  exportBtn.disabled = !patients.some(p=>p.report);
+
+  if(patients.length===0){ list.innerHTML='<div style="padding:20px 12px;font-size:12px;color:var(--muted);text-align:center;">No patients yet</div>'; return; }
+
+  list.innerHTML = patients.map(p=>{
+    const displayName = p.name || 'New Patient';
+    const displayMrn  = p.mrn  || '—';
+    const isRec = isRecordingPatient(p.id);
+    const recSecs = recordings[p.id]?.seconds||0;
+    const recTime = isRec ? ` <span class="pc-rec">⏺ ${String(Math.floor(recSecs/60)).padStart(2,'0')}:${String(recSecs%60).padStart(2,'0')}</span>` : '';
+    const statusLabel = p.status==='done'?'✓ Report ready': p.status==='processing'?'⟳ Processing...':'○ Draft';
+    const statusClass = p.status==='done'?'done': p.status==='processing'?'processing':'draft';
+    const isActive    = p.id===activeId;
+    return `<div class="patient-card${isActive?' active':''}" onclick="switchPatient('${p.id}')">
+      <button class="pc-del" onclick="deletePatient('${p.id}',event)" title="Remove">✕</button>
+      <div class="pc-name">${displayName}${recTime}</div>
+      <div class="pc-meta">${displayMrn} · ${templates[p.template]?.label||'Study'}</div>
+      <div class="pc-status ${statusClass}">${statusLabel}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderEmpty(){
+  document.getElementById('mainContent').innerHTML=`
+    <div class="empty-state">
+      <div class="es-icon">🫁</div>
+      <p>No patients in this session yet.<br>Click <strong>+ New</strong> to start dictating.</p>
+      <button class="btn btn-process" onclick="addNewPatient()">+ Add First Patient</button>
+    </div>`;
+}
+
+function renderPatientView(id){
+  const p = patients.find(x=>x.id===id);
+  if(!p){ renderEmpty(); return; }
+
+  const apiVal = savedKey||localStorage.getItem('rad_api_key')||'';
+  const tmplBtns = Object.entries(templates).map(([k,t])=>
+    `<button class="template-btn${p.template===k?' active':''}" data-template="${k}" onclick="selectTemplate('${k}')">${t.label}</button>`
+  ).join('');
+
+  const hasReport = !!p.report;
+  const actionBtns = hasReport ? `
+    <button class="btn btn-copy" onclick="copyReport()">⎘ Copy</button>
+    <button class="btn btn-edit" id="editBtn" onclick="toggleEdit()">✎ Edit</button>
+    <button class="btn btn-print" onclick="printReport()">🖨 Print</button>
+    <button class="btn btn-word" onclick="exportWord()">⬇ Word</button>
+    <button class="btn btn-whatsapp" onclick="shareWhatsApp()">💬 WhatsApp</button>
+    <button class="btn btn-next" onclick="saveAndNext()">＋ Next Patient</button>
+  ` : `<button class="btn btn-secondary" onclick="showPasteReport()" style="border-color:rgba(129,140,248,0.4);color:var(--accent2);">⊕ Paste Report</button>`;
+
+  document.getElementById('mainContent').innerHTML=`
+    <!-- API -->
+    <div class="api-row">
+      <label>API KEY</label>
+      <input type="password" id="apiKey" value="${apiVal}" placeholder="sk-ant-..."/>
+      <button class="btn btn-secondary" style="padding:8px 13px;font-size:12px;" onclick="saveKey()">Save</button>
+    </div>
+
+    <!-- Patient Info -->
+    <div class="panel">
+      <div class="panel-header"><span class="dot"></span>PATIENT INFORMATION</div>
+      <div class="patient-grid">
+        <div class="field-group"><label>PATIENT NAME (EN)</label><input type="text" id="patName" value="${p.name}" placeholder="Full name" oninput="syncName()"/></div>
+        <div class="field-group"><label>اسم المريض (AR)</label><input type="text" id="patNameAr" value="${p.nameAr}" placeholder="الاسم بالعربي" dir="rtl"/></div>
+        <div class="field-group"><label>DATE OF BIRTH</label><input type="date" id="patDOB" value="${p.dob}"/></div>
+        <div class="field-group"><label>MRN / FILE NO.</label><input type="text" id="patMRN" value="${p.mrn}" placeholder="e.g. MRN-00123" oninput="syncMrn()"/></div>
+        <div class="field-group"><label>REFERRING PHYSICIAN</label><input type="text" id="patRef" value="${p.ref}" placeholder="Dr. ..."/></div>
+        <div class="field-group"><label>STUDY DATE</label><input type="date" id="studyDate" value="${p.studyDate}"/></div>
+        <div class="field-group"><label>RADIOLOGIST</label><input type="text" id="radiologist" value="${p.radiologist}" placeholder="Dr. ..."/></div>
+      </div>
+    </div>
+
+    <!-- Template -->
+    <div>
+      <div class="section-label">REPORT TEMPLATE</div>
+      <div class="template-row">${tmplBtns}</div>
+    </div>
+
+    <!-- Dictation + Report -->
+    <div class="two-col">
+      <div class="panel" style="display:flex;flex-direction:column;">
+        <div class="panel-header"><span class="dot" id="recDot"></span><span id="recLabel">DICTATION</span></div>
+        <textarea id="dictationText" placeholder="Click 'Record' to dictate, or type findings here...">${p.dictation}</textarea>
+        <div class="status-bar"><span id="statusMsg">Ready</span><span class="timer" id="timer">00:00</span></div>
+      </div>
+      <div class="panel" style="display:flex;flex-direction:column;">
+        <div class="panel-header"><span class="dot" id="outDot"></span>STRUCTURED REPORT<span class="edit-badge" id="editBadge">EDITING</span></div>
+        <div class="output-content${hasReport?'':' empty'}" id="outputContent">${hasReport? p.report.replace(/^([A-Z][A-Z &\/\-]+:)/gm,'<span class="rh">$1</span>') : 'Report will appear here after processing...'}</div>
+        <textarea class="report-edit-area" id="reportEditArea" placeholder="Edit your report here..."></textarea>
+        <div class="status-bar"><span id="outStatus">${hasReport?'Report ready':'Waiting for dictation'}</span></div>
+      </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="controls">
+      <button class="btn btn-record" id="recordBtn" onclick="toggleRecord()"><span>⏺</span><span id="recordLabel">Record</span></button>
+      <button class="btn btn-process" id="processBtn" onclick="processReport()" ${p.dictation?'':'disabled'}><span>✦</span> Generate Report</button>
+      <button class="btn btn-secondary" onclick="clearCurrent()">Clear</button>
+      ${actionBtns}
+    </div>
+  `;
+
+  // bind dictation textarea input
+  document.getElementById('dictationText').addEventListener('input', checkEnable);
+  // restore dot state
+  if(hasReport) document.getElementById('outDot').className='dot ready';
+}
+
+// ══════════════════════════════════════════════
+// Sync sidebar live
+// ══════════════════════════════════════════════
+function syncName(){
+  const p=patients.find(x=>x.id===activeId); if(!p) return;
+  p.name=v('patName'); renderSidebar();
+}
+function syncMrn(){
+  const p=patients.find(x=>x.id===activeId); if(!p) return;
+  p.mrn=v('patMRN'); renderSidebar();
+}
+function selectTemplate(key){
+  document.querySelectorAll('.template-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelector(`[data-template="${key}"]`)?.classList.add('active');
+  const p=patients.find(x=>x.id===activeId); if(p) p.template=key; renderSidebar();
+}
+
+// ══════════════════════════════════════════════
+// Recording — per patient, simultaneous support
+// ══════════════════════════════════════════════
+function toggleRecord(){
+  const id = activeId; if(!id) return;
+  recordings[id]?.active ? stopRecording(id) : startRecording(id);
+}
+
+function startRecording(id){
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR){alert('Speech recognition requires Chrome or Edge.');return;}
+  if(recordings[id]?.active) return;
+
+  const rec = new SR();
+  rec.continuous=true; rec.interimResults=true; rec.lang='en-US';
+
+  const isActiveView = id===activeId;
+  const ta = isActiveView ? document.getElementById('dictationText') : null;
+  const p = patients.find(x=>x.id===id);
+  let existing = (isActiveView ? ta?.value : p?.dictation) || '';
+  if(existing && !existing.endsWith(' ')) existing+=' ';
+
+  rec.onresult = e => {
+    let interim='', final='';
+    for(let i=e.resultIndex;i<e.results.length;i++){
+      if(e.results[i].isFinal) final+=e.results[i][0].transcript+' ';
+      else interim+=e.results[i][0].transcript;
+    }
+    const newText = existing+final+interim;
+    if(p) p.dictation = existing+final+(interim?'':' ').trim();
+    if(id===activeId){
+      const ta2=document.getElementById('dictationText');
+      if(ta2){ ta2.value=newText; checkEnable(); }
+    }
+    if(final) existing+=final;
+  };
+  rec.onerror = e=>console.error(e);
+  rec.onend = ()=>{ if(recordings[id]?.active) rec.start(); };
+  rec.start();
+
+  let secs=0;
+  const interval = setInterval(()=>{
+    secs++;
+    recordings[id].seconds=secs;
+    if(id===activeId){
+      const el=document.getElementById('timer');
+      if(el){ el.textContent=`${String(Math.floor(secs/60)).padStart(2,'0')}:${String(secs%60).padStart(2,'0')}`; }
+    }
+    // update sidebar rec indicator
+    renderSidebar();
+  },1000);
+
+  recordings[id]={ active:true, recognition:rec, timerInterval:interval, seconds:0 };
+  if(id===activeId) updateRecordUI(true);
+  renderSidebar();
+}
+
+function stopRecording(id){
+  const r=recordings[id]; if(!r) return;
+  r.active=false;
+  if(r.recognition){ r.recognition.onend=null; r.recognition.stop(); }
+  clearInterval(r.timerInterval);
+  delete recordings[id];
+  if(id===activeId) updateRecordUI(false);
+  renderSidebar();
+  checkEnable();
+}
+
+function isRecordingPatient(id){ return !!recordings[id]?.active; }
+
+function updateRecordUI(on){
+  const lbl=document.getElementById('recordLabel'); if(!lbl) return;
+  lbl.textContent=on?'Stop':'Record';
+  document.getElementById('recordBtn')?.classList.toggle('recording',on);
+  const dot=document.getElementById('recDot'); if(dot) dot.className=on?'dot live':'dot';
+  const sm=document.getElementById('statusMsg'); if(sm) sm.textContent=on?'Recording...':'Dictation captured';
+  const timer=document.getElementById('timer'); if(timer) timer.classList.toggle('visible',on);
+}
+function checkEnable(){
+  const has=document.getElementById('dictationText')?.value.trim().length>0;
+  const btn=document.getElementById('processBtn'); if(btn) btn.disabled=!has;
+}
+
+// ══════════════════════════════════════════════
+// Generate Report
+// ══════════════════════════════════════════════
+async function processReport(){
+  const apiKey=document.getElementById('apiKey')?.value.trim();
+  if(!apiKey){alert('Please enter your Anthropic API key.');return;}
+  const dictation=document.getElementById('dictationText')?.value.trim();
+  if(!dictation) return;
+
+  saveFormState();
+  const p=patients.find(x=>x.id===activeId); if(!p) return;
+  const tmpl=templates[p.template];
+
+  const out=document.getElementById('outputContent');
+  const outStatus=document.getElementById('outStatus');
+  const outDot=document.getElementById('outDot');
+
+  out.className='output-content';
+  out.innerHTML=[60,85,40,75,50].map(w=>`<div class="shimmer" style="width:${w}%"></div>`).join('');
+  outStatus.textContent='Generating with Claude...';
+  outDot.className='dot live';
+  p.status='processing'; renderSidebar();
+  document.getElementById('processBtn').disabled=true;
+
+  const system=`You are an expert radiologist assistant. Format dictated radiology findings into a structured professional report.
+Use ALL CAPS for section headers followed by a colon (e.g. FINDINGS:).
+Sections: ${tmpl.sections}.
+Rules:
+- Professional radiology style: concise, precise, passive voice.
+- Correct medical terminology and spelling only — do not add clinical interpretation unless dictated.
+- If a section was not mentioned, write "Not available".
+- IMPRESSION: numbered bullet points summarising key findings exactly as dictated.
+- No markdown, no asterisks, plain text only.`;
+
+  try{
+    const res=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1500,system,messages:[{role:'user',content:`Format this dictation into a structured radiology report:\n\n${dictation}`}]}),
+    });
+    if(!res.ok){const e=await res.json();throw new Error(e.error?.message||'API error');}
+    const data=await res.json();
+    const report=data.content.map(b=>b.text||'').join('');
+    p.report=report; p.status='done'; saveFormState();
+
+    out.innerHTML=report.replace(/^([A-Z][A-Z &\/\-]+:)/gm,'<span class="rh">$1</span>');
+    out.className='output-content';
+    outStatus.textContent='Report ready ✓';
+    outDot.className='dot ready';
+    renderSidebar();
+    // Re-render to show action buttons
+    renderPatientView(activeId);
+  }catch(err){
+    out.textContent=`Error: ${err.message}`;
+    out.className='output-content empty';
+    outStatus.textContent='Error occurred'; outDot.className='dot';
+    p.status='draft'; renderSidebar();
+  }
+  const btn=document.getElementById('processBtn'); if(btn) btn.disabled=false;
+  checkEnable();
+}
+
+// ══════════════════════════════════════════════
+// Edit
+// ══════════════════════════════════════════════
+function toggleEdit(){
+  const p=patients.find(x=>x.id===activeId); if(!p||!p.report) return;
+  isEditMode=!isEditMode;
+  const out=document.getElementById('outputContent');
+  const editArea=document.getElementById('reportEditArea');
+  const badge=document.getElementById('editBadge');
+  const btn=document.getElementById('editBtn');
+  if(isEditMode){
+    editArea.value=p.report;
+    out.style.display='none'; editArea.classList.add('visible');
+    badge.classList.add('visible'); btn.classList.add('active'); btn.innerHTML='✔ Done';
+    editArea.focus();
+  }else{
+    p.report=editArea.value;
+    out.innerHTML=p.report.replace(/^([A-Z][A-Z &\/\-]+:)/gm,'<span class="rh">$1</span>');
+    out.style.display=''; editArea.classList.remove('visible');
+    badge.classList.remove('visible'); btn.classList.remove('active'); btn.innerHTML='✎ Edit';
+    showToast('Report updated!');
+  }
+}
+
+// ══════════════════════════════════════════════
+// Save & Next Patient
+// ══════════════════════════════════════════════
+function saveAndNext(){
+  saveFormState();
+  showToast('Patient saved! Adding new patient...');
+  setTimeout(()=>addNewPatient(),600);
+}
+
+// ══════════════════════════════════════════════
+// Copy / WhatsApp
+// ══════════════════════════════════════════════
+function copyReport(){
+  saveFormState();
+  const p=patients.find(x=>x.id===activeId); if(!p||!p.report) return;
+  const hdr=`PATIENT: ${p.name} | DOB: ${p.dob} | MRN: ${p.mrn}\nSTUDY DATE: ${p.studyDate} | RADIOLOGIST: ${p.radiologist}\n${'─'.repeat(60)}\n\n`;
+  navigator.clipboard.writeText(hdr+p.report).then(()=>showToast('Report copied!'));
+}
+
+function shareWhatsApp(){
+  saveFormState();
+  const p=patients.find(x=>x.id===activeId); if(!p||!p.report) return;
+  const hdr=`🏥 *RADIOLOGY REPORT*\n*Patient:* ${p.name}${p.nameAr?' / '+p.nameAr:''}\n*MRN:* ${p.mrn}\n*Study Date:* ${p.studyDate}\n*Radiologist:* ${p.radiologist}\n${'─'.repeat(40)}\n\n`;
+  window.open(`https://wa.me/?text=${encodeURIComponent(hdr+p.report)}`,'_blank');
+}
+
+// ══════════════════════════════════════════════
+// Clear current
+// ══════════════════════════════════════════════
+function clearCurrent(){
+  if(isRecordingPatient(activeId)) stopRecording(activeId);
+  isEditMode=false;
+  const p=patients.find(x=>x.id===activeId); if(!p) return;
+  p.dictation=''; p.report=''; p.status='draft';
+  renderSidebar();
+  renderPatientView(activeId);
+}
+
+// ══════════════════════════════════════════════
+// Print — findings only, no impression
+// ══════════════════════════════════════════════
+function printReport(){
+  saveFormState();
+  const p=patients.find(x=>x.id===activeId); if(!p||!p.report) return;
+
+  // Strip impression section
+  const reportLines = p.report.split('\n');
+  const filteredLines = [];
+  let inImpression = false;
+  for(const line of reportLines){
+    if(/^IMPRESSION:/i.test(line.trim())){ inImpression=true; continue; }
+    // stop suppressing at next ALL-CAPS section after impression
+    if(inImpression && /^[A-Z][A-Z &\/\-]+:/.test(line.trim())) inImpression=false;
+    if(!inImpression) filteredLines.push(line);
+  }
+  const bodyText = filteredLines.join('\n').trim();
+
+  // Format lines for print
+  const studyLabel = templates[p.template]?.label||'Radiology';
+  const formatDate = d=>{ if(!d||d==='Not provided') return ''; try{return new Date(d+'T00:00:00').toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});}catch{return d;}};
+
+  const bodyHtml = bodyText.split('\n').map(line=>{
+    const t=line.trim();
+    if(!t) return '<br>';
+    const hm=t.match(/^([A-Z][A-Z &\/\-]+:)(.*)/);
+    if(hm) return `<div class="print-section-header">${hm[1]}</div><div>${hm[2].trim()}</div>`;
+    return `<div>${t}</div>`;
+  }).join('');
+
+  const nameDisplay = p.nameAr ? `${p.name} / ${p.nameAr}` : p.name||'—';
+
+  document.getElementById('printArea').innerHTML=`
+    <h2>${studyLabel.toUpperCase()} REPORT</h2>
+    <div class="print-meta">
+      <strong>Patient:</strong> ${nameDisplay} &nbsp;|&nbsp;
+      <strong>MRN:</strong> ${p.mrn||'—'} &nbsp;|&nbsp;
+      <strong>DOB:</strong> ${formatDate(p.dob)||'—'} &nbsp;|&nbsp;
+      <strong>Study Date:</strong> ${formatDate(p.studyDate)||'—'}<br>
+      <strong>Referring:</strong> ${p.ref||'—'} &nbsp;|&nbsp;
+      <strong>Radiologist:</strong> ${p.radiologist||'—'}
+    </div>
+    <div class="print-body">${bodyHtml}</div>
+    <br><br>
+    <div style="font-size:10pt;color:#999;border-top:1px solid #ddd;padding-top:8px;">
+      AI-assisted report. Must be reviewed and signed by a qualified radiologist.
+    </div>
+  `;
+
+  window.print();
+}
+
+// ══════════════════════════════════════════════
+// Word Export — single
+// ══════════════════════════════════════════════
+async function exportWord(){
+  saveFormState();
+  const p=patients.find(x=>x.id===activeId); if(!p||!p.report) return;
+  await ensureDocx();
+  const blob=await buildDocx(p);
+  const name=(p.name||'Patient').replace(/\s+/g,'_');
+  const today=new Date().toISOString().split('T')[0];
+  saveAs(blob,`RadReport_${name}_${today}.docx`);
+  showToast('Word file downloaded!');
+}
+
+// ══════════════════════════════════════════════
+// Word Export — ALL patients
+// ══════════════════════════════════════════════
+async function exportAllWord(){
+  const done=patients.filter(p=>p.report);
+  if(!done.length){showToast('No completed reports yet.');return;}
+  await ensureDocx();
+  const {Document,Packer}=window.docx;
+
+  const allSections=[];
+  for(let i=0;i<done.length;i++){
+    const p=done[i];
+    const sectionChildren=await buildDocxChildren(p);
+    allSections.push({
+      properties:{page:{size:{width:12240,height:15840},margin:{top:1440,right:1440,bottom:1440,left:1440}}},
+      children:sectionChildren,
+    });
+  }
+  const doc=new Document({sections:allSections});
+  const blob=await Packer.toBlob(doc);
+  const today=new Date().toISOString().split('T')[0];
+  saveAs(blob,`RadReports_Session_${today}.docx`);
+  showToast(`Exported ${done.length} reports!`);
+}
+
+async function ensureDocx(){
+  if(!window.docx){showToast('Loading Word library...');await loadScript('https://unpkg.com/docx@8.5.0/build/index.js');}
+}
+
+async function buildDocx(p){
+  const {Document,Packer}=window.docx;
+  const children=await buildDocxChildren(p);
+  const doc=new Document({sections:[{properties:{page:{size:{width:12240,height:15840},margin:{top:1440,right:1440,bottom:1440,left:1440}}},children}]});
+  return Packer.toBlob(doc);
+}
+
+async function buildDocxChildren(p){
+  const {Paragraph,TextRun,AlignmentType,BorderStyle,Table,TableRow,TableCell,WidthType}=window.docx;
+  const studyLabel=templates[p.template]?.label||'Radiology';
+  const formatDate=d=>{if(!d||d==='Not provided')return 'Not provided';try{return new Date(d+'T00:00:00').toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});}catch{return d;}};
+  const patNameDisplay=p.nameAr?`${p.name}  /  ${p.nameAr}`:p.name||'Not provided';
+  const border={style:BorderStyle.SINGLE,size:1,color:'CCCCCC'};
+  const borders={top:border,bottom:border,left:border,right:border};
+  const cell=(label,value)=>new TableCell({borders,width:{size:4680,type:WidthType.DXA},margins:{top:80,bottom:80,left:120,right:120},
+    children:[new Paragraph({children:[new TextRun({text:label+': ',bold:true,size:20,font:'Arial',color:'444444'}),new TextRun({text:value||'Not provided',size:20,font:'Arial'})]})]});
+
+  const children=[];
+  children.push(new Paragraph({alignment:AlignmentType.CENTER,spacing:{after:80},children:[new TextRun({text:studyLabel.toUpperCase()+' REPORT',bold:true,size:30,font:'Arial',color:'1E3A5F'})]}));
+  children.push(new Paragraph({alignment:AlignmentType.CENTER,spacing:{after:200},border:{bottom:{style:BorderStyle.SINGLE,size:6,color:'38BDF8',space:1}},children:[new TextRun({text:'Radiology Department',size:18,font:'Arial',color:'888888'})]}));
+  children.push(new Table({width:{size:9360,type:WidthType.DXA},columnWidths:[4680,4680],rows:[
+    new TableRow({children:[cell('Patient Name',patNameDisplay),cell('Date of Birth',formatDate(p.dob))]}),
+    new TableRow({children:[cell('MRN / File No.',p.mrn),cell('Study Date',formatDate(p.studyDate))]}),
+    new TableRow({children:[cell('Referring Physician',p.ref),cell('Radiologist',p.radiologist)]}),
+  ]}));
+  children.push(new Paragraph({spacing:{after:220},children:[]}));
+
+  (p.report||'').split('\n').forEach(line=>{
+    const t=line.trim();
+    if(!t){children.push(new Paragraph({spacing:{after:80},children:[]}));return;}
+    const hm=t.match(/^([A-Z][A-Z &\/\-]+:)(.*)/);
+    if(hm){children.push(new Paragraph({spacing:{before:220,after:80},children:[new TextRun({text:hm[1],bold:true,size:22,font:'Arial',color:'1E3A5F'}),new TextRun({text:hm[2],size:22,font:'Arial'})]}))}
+    else if(/^\d+\./.test(t)){children.push(new Paragraph({spacing:{after:60},indent:{left:360},children:[new TextRun({text:t,size:22,font:'Arial'})]}))}
+    else{children.push(new Paragraph({spacing:{after:60},children:[new TextRun({text:t,size:22,font:'Arial'})]}));}
+  });
+
+  children.push(new Paragraph({border:{top:{style:BorderStyle.SINGLE,size:4,color:'38BDF8',space:1}},spacing:{before:400,after:80},children:[]}));
+  children.push(new Paragraph({children:[new TextRun({text:'Reporting Radiologist: ',bold:true,size:20,font:'Arial'}),new TextRun({text:p.radiologist||'Not provided',size:20,font:'Arial'})]}));
+  children.push(new Paragraph({children:[new TextRun({text:'Report Date: ',bold:true,size:20,font:'Arial'}),new TextRun({text:formatDate(p.studyDate),size:20,font:'Arial'})]}));
+  children.push(new Paragraph({spacing:{before:140},children:[new TextRun({text:'** AI-assisted report. Must be reviewed and signed by a qualified radiologist. **',italics:true,size:18,font:'Arial',color:'888888'})]}));
+  return children;
+}
+
+// ══════════════════════════════════════════════
+// Utilities
+// ══════════════════════════════════════════════
+function saveKey(){
+  const k=document.getElementById('apiKey')?.value.trim();
+  if(k){localStorage.setItem('rad_api_key',k);showToast('API key saved!');}
+}
+
+function loadScript(src){
+  return new Promise((res,rej)=>{const s=document.createElement('script');s.src=src;s.onload=res;s.onerror=rej;document.head.appendChild(s);});
+}
+
+// ══════════════════════════════════════════════
+// Paste Report directly
+// ══════════════════════════════════════════════
+function showPasteReport(){
+  // remove any existing modal
+  document.getElementById('pasteModal')?.remove();
+  const modal = document.createElement('div');
+  modal.className='modal-overlay'; modal.id='pasteModal';
+  modal.innerHTML=`
+    <div class="modal">
+      <div class="modal-header">
+        <h3>⊕ Load Finished Report</h3>
+        <button onclick="document.getElementById('pasteModal').remove()">✕</button>
+      </div>
+      <div class="modal-body">
+        <p>Paste a finished report directly into the box below — it will be loaded into this patient's report panel, ready to print, export, or share via WhatsApp.</p>
+        <textarea id="pasteArea" placeholder="Paste your report here..."></textarea>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="document.getElementById('pasteModal').remove()">Cancel</button>
+        <button class="btn btn-process" onclick="loadPastedReport()">⊕ Load Report</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  setTimeout(()=>document.getElementById('pasteArea')?.focus(), 100);
+}
+
+function loadPastedReport(){
+  const text = document.getElementById('pasteArea')?.value.trim();
+  if(!text){ showToast('Nothing to load!'); return; }
+  saveFormState();
+  const p = patients.find(x=>x.id===activeId); if(!p) return;
+  p.report = text;
+  p.status = 'done';
+  document.getElementById('pasteModal')?.remove();
+  renderSidebar();
+  renderPatientView(activeId);
+  showToast('Report loaded!');
+}
+
+function showToast(msg){
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),2500);
+}
+
+// ── Init ──
+renderSidebar();
+</script>
+</body>
+</html>
